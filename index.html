@@ -1,0 +1,616 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tournament Brackets</title>
+<style>
+  :root{
+    --paper:#EDF1F0;
+    --card:#FFFFFF;
+    --ink:#12211F;
+    --ink-soft:#4A5F5C;
+    --rule:#AEBFBB;
+    --line:#1D4E5F;
+    --out:#B4451F;
+    --sun:#D9932B;
+    --unit:20;
+    --mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, monospace;
+    --sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:var(--sans);
+    -webkit-text-size-adjust:100%;
+  }
+  .bar{
+    display:flex;align-items:baseline;gap:.75rem;flex-wrap:wrap;
+    padding:.85rem 1rem .7rem;
+    border-bottom:2px solid var(--ink);
+    background:var(--card);
+  }
+  .bar h1{
+    margin:0;font-size:1.05rem;font-weight:800;
+    letter-spacing:-.02em;text-transform:uppercase;
+  }
+  .stamp{
+    font-family:var(--mono);font-size:.7rem;color:var(--ink-soft);
+    margin-left:auto;display:flex;align-items:center;gap:.6rem;
+  }
+  .stamp b{font-weight:600;color:var(--ink)}
+  .stamp.err{color:var(--out)}
+  button{
+    font:inherit;font-size:.8rem;cursor:pointer;
+    background:var(--card);color:var(--ink);
+    border:1.5px solid var(--rule);border-radius:2px;
+    padding:.4rem .7rem;
+  }
+  button:hover{border-color:var(--ink)}
+  button:focus-visible{outline:2px solid var(--sun);outline-offset:2px}
+  nav{
+    display:flex;gap:.3rem;flex-wrap:wrap;
+    padding:.6rem 1rem;background:var(--card);
+    border-bottom:1px solid var(--rule);
+  }
+  nav.sub{border-bottom:2px solid var(--ink);padding-top:.15rem}
+  .tab{
+    text-transform:uppercase;letter-spacing:.04em;font-weight:700;
+    font-size:.72rem;padding:.5rem .8rem;border-radius:0;
+    border:1.5px solid transparent;background:transparent;
+  }
+  .tab[aria-selected="true"]{
+    background:var(--ink);color:var(--paper);border-color:var(--ink);
+  }
+  .zoom{display:flex;gap:.25rem;margin-left:auto}
+  .zoom button{font-family:var(--mono);padding:.35rem .55rem;line-height:1}
+  .scroll{overflow:auto;padding:1.25rem 1rem 2.5rem;-webkit-overflow-scrolling:touch}
+  svg{display:block}
+  svg text{font-family:var(--sans)}
+  svg .stub{font-family:var(--mono)}
+  .note{
+    padding:.75rem 1rem;font-size:.78rem;line-height:1.5;
+    background:#FDF6E7;border-bottom:1px solid var(--rule);color:#6B4A12;
+  }
+  .note code{font-family:var(--mono);font-size:.95em}
+  .seeds{
+    padding:0 1rem 2rem;max-width:34rem;
+  }
+  .seeds h2{
+    font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--ink-soft);margin:0 0 .5rem;font-weight:700;
+  }
+  .seeds table{border-collapse:collapse;width:100%;font-size:.82rem}
+  .seeds td{border-bottom:1px solid var(--rule);padding:.35rem .4rem}
+  .seeds td:first-child{
+    font-family:var(--mono);color:var(--ink-soft);width:2.2rem;text-align:right;
+  }
+  .seeds td.num{font-family:var(--mono);text-align:right;width:3rem}
+  .seeds tr.out td:nth-child(2){text-decoration:line-through;color:var(--out)}
+  .fade{animation:fade .28s ease-out}
+  @keyframes fade{from{opacity:.35}to{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.fade{animation:none}}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1 id="title">Tournament Brackets</h1>
+  <div class="stamp" id="stamp"><span>Loading…</span></div>
+  <button id="refresh">Refresh now</button>
+</div>
+
+<div class="note" id="setupNote" hidden>
+  Add your Google Sheet ID to <code>CONFIG.SHEET_ID</code> in this file. Showing seed
+  placeholders until then.
+</div>
+
+<nav id="divTabs" role="tablist" aria-label="Division"></nav>
+<nav class="sub">
+  <button class="tab" id="tabW" role="tab" aria-selected="true">Winners</button>
+  <button class="tab" id="tabL" role="tab" aria-selected="false">Losers</button>
+  <div class="zoom">
+    <button id="zOut" aria-label="Zoom out">&minus;</button>
+    <button id="zFit">Fit</button>
+    <button id="zIn" aria-label="Zoom in">+</button>
+  </div>
+</nav>
+
+<div class="scroll" id="stage"></div>
+<div class="seeds" id="seeds"></div>
+
+<script>
+/* ============================================================
+   1. CONFIG  — the only part you edit
+   ============================================================ */
+const CONFIG = {
+  SHEET_ID: "1GEFMmg_pE4h6usYyx_US6GmpEBITMN13k3pmopAOaD8",
+  POLL_SECONDS: 30,
+  TITLE: "Tournament Brackets"
+};
+
+/* ============================================================
+   2. BRACKET DEFINITIONS  (ported straight from the Python)
+   ============================================================ */
+const BRACKET_9 = {
+  1:[8,9],
+  2:[4,5], 3:[2,7], 4:[3,6], 5:[1,"W1"],
+  6:["L4","L1"],
+  7:["L2","L5"], 8:["L3","W6"],
+  9:["W3","W4"], 10:["W5","W2"],
+  11:["L9","W7"], 12:["L10","W8"],
+  13:["W12","W11"],
+  14:["W10","W9"],
+  15:["L14","W13"],
+  16:["W14","W15"], 17:["W14","W15"]
+};
+
+const BRACKET_10 = {
+  1:[8,9], 2:[7,10],
+  3:[4,5], 4:[3,6], 5:[1,"W1"], 6:[2,"W2"],
+  7:["L3","L2"], 8:["L4","L1"],
+  9:["L5","W7"], 10:["L6","W8"],
+  11:["W5","W3"], 12:["W6","W4"],
+  13:["L11","W10"], 14:["L12","W9"],
+  15:["W13","W14"],
+  16:["W11","W12"],
+  17:["L16","W15"],
+  18:["W16","W17"], 19:["W16","W17"]
+};
+
+const BRACKET_13 = {
+  1:[8,9], 2:[4,13], 3:[5,12], 4:[7,10], 5:[6,11],
+  6:["L2","L3"],
+  7:[1,"W1"], 8:["W2","W3"], 9:[2,"W4"], 10:[3,"W5"],
+  11:["L7","L5"], 12:["L8","L4"], 13:["L9","W6"], 14:["L10","L1"],
+  15:["W12","W11"], 16:["W14","W13"],
+  17:["W7","W8"], 18:["W9","W10"],
+  19:["L17","W16"], 20:["L18","W15"],
+  21:["W19","W20"],
+  22:["W17","W18"],
+  23:["L22","W21"],
+  24:["W22","W23"], 25:["W22","W23"]
+};
+
+const BRACKET_25 = {
+  1:[16,17], 2:[8,25], 3:[9,24], 4:[13,20],
+  5:[12,21], 6:[15,18], 7:[10,23], 8:[14,19],
+  9:[11,22],
+  10:["L2","L3"],
+  11:[1,"W1"], 12:["W2","W3"], 13:[4,"W4"], 14:[5,"W5"],
+  15:[2,"W6"], 16:[7,"W7"], 17:[3,"W8"], 18:[6,"W9"],
+  19:["L11","L9"], 20:["L12","L8"], 21:["L13","L7"], 22:["L14","L6"],
+  23:["L15","L5"], 24:["L16","L4"], 25:["L17","W10"], 26:["L18","L1"],
+  27:["W20","W19"], 28:["W22","W21"], 29:["W24","W23"], 30:["W26","W25"],
+  31:["W11","W12"], 32:["W13","W14"], 33:["W15","W16"], 34:["W17","W18"],
+  35:["L31","W29"], 36:["L32","W30"], 37:["L33","W27"], 38:["L34","W28"],
+  39:["W36","W35"], 40:["W38","W37"],
+  41:["W31","W32"], 42:["W33","W34"],
+  43:["L41","W40"], 44:["L42","W39"],
+  45:["W44","W43"],
+  46:["W41","W42"],
+  47:["L46","W45"],
+  48:["W46","W47"], 49:["W46","W47"]
+};
+
+const WINNERS_ROUNDS_9  = {1:[1], 2:[2,3,4,5], 3:[9,10], 4:[14], 5:[16,17]};
+const LOSERS_ROUNDS_9   = {1:[6], 2:[7,8], 3:[11,12], 4:[13], 5:[15]};
+
+const WINNERS_ROUNDS_10 = {1:[1,2], 2:[3,4,5,6], 3:[11,12], 4:[16], 5:[18,19]};
+const LOSERS_ROUNDS_10  = {1:[7,8], 2:[9,10], 3:[13,14], 4:[15], 5:[17]};
+
+const WINNERS_ROUNDS_13 = {1:[1,2,3,4,5], 2:[7,8,9,10], 3:[17,18], 4:[22], 5:[24,25]};
+const LOSERS_ROUNDS_13  = {1:[6], 2:[11,12,13,14], 3:[15,16], 4:[19,20], 5:[21], 6:[23]};
+
+const WINNERS_ROUNDS_25 = {
+  1:[1,2,3,4,5,6,7,8,9], 2:[11,12,13,14,15,16,17,18],
+  3:[31,32,33,34], 4:[41,42], 5:[46], 6:[48,49]
+};
+const LOSERS_ROUNDS_25 = {
+  1:[10], 2:[19,20,21,22,23,24,25,26], 3:[27,28,29,30],
+  4:[35,36,37,38], 5:[39,40], 6:[43,44], 7:[45], 8:[47]
+};
+
+const DIVISIONS = [
+  {key:"womens",     label:"Women's",     bracket:BRACKET_9,  wr:WINNERS_ROUNDS_9,  lr:LOSERS_ROUNDS_9},
+  {key:"masters",    label:"Masters",     bracket:BRACKET_10, wr:WINNERS_ROUNDS_10, lr:LOSERS_ROUNDS_10},
+  {key:"mens_upper", label:"Men's Upper", bracket:BRACKET_13, wr:WINNERS_ROUNDS_13, lr:LOSERS_ROUNDS_13},
+  {key:"mens_lower", label:"Men's Lower", bracket:BRACKET_25, wr:WINNERS_ROUNDS_25, lr:LOSERS_ROUNDS_25}
+];
+DIVISIONS.forEach(d => { d.poolTab = d.key + "_pool"; d.gamesTab = d.key + "_games"; });
+
+/* ============================================================
+   3. BRACKET ENGINE
+   ============================================================ */
+const gids = def => Object.keys(def).map(Number).sort((a,b)=>a-b);
+const isRef = s => typeof s === "string" && (s[0] === "W" || s[0] === "L");
+
+function seedTeams(rows){
+  return rows.slice()
+    .sort((a,b) => (b.wins - a.wins) || (b.rd - a.rd) || (b.rs - a.rs))
+    .map((r,i) => Object.assign({}, r, {seed:i+1}));
+}
+
+class DoubleElim {
+  constructor(seeded, def){
+    this.def = def;
+    this.seedToTeam = {};
+    seeded.forEach(t => { this.seedToTeam[t.seed] = t.name; });
+    this.games = {};
+    this.losses = {};
+    for (const gid of gids(def)){
+      this.games[gid] = {gid, a:null, b:null, sa:null, sb:null};
+      const [x,y] = def[gid];
+      if (typeof x === "number") this.games[gid].a = this.seedToTeam[x] || null;
+      if (typeof y === "number") this.games[gid].b = this.seedToTeam[y] || null;
+    }
+  }
+  enter(gid, sa, sb){
+    const g = this.games[gid];
+    if (g.a == null || g.b == null || sa === sb) return false;
+    g.sa = sa; g.sb = sb;
+    const win  = sa > sb ? g.a : g.b;
+    const lose = sa > sb ? g.b : g.a;
+    this.losses[lose] = (this.losses[lose] || 0) + 1;
+    for (const id of gids(this.def)){
+      const [x,y] = this.def[id], t = this.games[id];
+      if (x === "W"+gid && t.a == null) t.a = win;
+      if (y === "W"+gid && t.b == null) t.b = win;
+      if (x === "L"+gid && t.a == null) t.a = lose;
+      if (y === "L"+gid && t.b == null) t.b = lose;
+    }
+    return true;
+  }
+  eliminated(team){ return (this.losses[team] || 0) >= 2; }
+}
+
+// Rebuild from scratch every refresh so a corrected score re-flows the whole bracket.
+function buildBracket(div, poolRows, gameRows){
+  const seeded = seedTeams(poolRows);
+  const t = new DoubleElim(seeded, div.bracket);
+  const byId = new Map();
+  gameRows.forEach(r => { if (r.gid != null) byId.set(r.gid, r); });
+  for (const gid of gids(div.bracket)){
+    const r = byId.get(gid);
+    if (r && r.sa != null && r.sb != null) t.enter(gid, r.sa, r.sb);
+  }
+  return {t, seeded, byId};
+}
+
+/* ============================================================
+   4. POSITIONING  (ported from the Python drawing functions)
+   ============================================================ */
+const BW = 10.0, BH = 2.6, XG = 3.0, MY = 4.0;
+
+function layoutRound(def, rounds, rnd, pos, x){
+  const placed = [];
+  for (const gid of rounds[rnd]){
+    const ys = [];
+    for (const s of (def[gid] || [])){
+      if (isRef(s)){
+        const pid = +s.slice(1);
+        if (pid in pos) ys.push(pos[pid][1]);
+      }
+    }
+    let y = ys.length === 2 ? (ys[0] + ys[1]) / 2
+          : ys.length === 1 ? ys[0]
+          : gid * MY;
+    // Games sharing the same feeders (the "if necessary" final) drop below.
+    while (placed.some(u => Math.abs(y - u) < BH + 1)) y -= (BH + MY);
+    placed.push(y);
+    pos[gid] = [x, y];
+  }
+}
+
+function backfillRound1(def, rounds, pos, r2list){
+  for (const g2 of r2list){
+    if (!(g2 in pos)) continue;
+    const y2 = pos[g2][1];
+    (def[g2] || []).forEach((s,i) => {
+      if (typeof s === "string" && s[0] === "W"){
+        const pid = +s.slice(1);
+        if ((rounds[1] || []).includes(pid)) pos[pid] = [0, y2 + (i === 0 ? BH : -BH)];
+      }
+    });
+  }
+}
+
+function positionWinners(def, rounds){
+  const pos = {}, r2 = rounds[2] || [];
+  const leaves = (gid, depth) => {
+    if (depth > 60) return [];
+    const out = [];
+    for (const s of (def[gid] || [])){
+      if (isRef(s)){
+        const pid = +s.slice(1);
+        if (r2.includes(pid)) out.push(pid);
+        else out.push(...leaves(pid, depth + 1));
+      } else if (typeof s === "number" && r2.includes(s)) out.push(s);
+    }
+    return out;
+  };
+  const rlist = Object.keys(rounds).map(Number).sort((a,b)=>a-b);
+  const maxR = rlist[rlist.length - 1];
+  const seen = new Set(), ordered = [];
+  for (const f of rounds[maxR])
+    for (const l of leaves(f, 0)) if (!seen.has(l)){ seen.add(l); ordered.push(l); }
+  for (const g of r2) if (!seen.has(g)){ seen.add(g); ordered.push(g); }
+
+  for (const rnd of rlist){
+    const x = (rnd - 1) * (BW + XG);
+    if (rnd === 1) continue;
+    if (rnd === 2){
+      ordered.forEach((gid,i) => { pos[gid] = [x, i * (MY * 3)]; });
+      backfillRound1(def, rounds, pos, rounds[2]);
+      continue;
+    }
+    layoutRound(def, rounds, rnd, pos, x);
+  }
+  return pos;
+}
+
+function positionLosers(def, rounds){
+  const pos = {};
+  const rlist = Object.keys(rounds).map(Number).sort((a,b)=>a-b);
+  for (const rnd of rlist){
+    const x = (rnd - 1) * (BW + XG);
+    if (rnd === 1) continue;
+    if (rnd === 2){
+      rounds[2].forEach((gid,i) => { pos[gid] = [x, i * (MY * 3)]; });
+      backfillRound1(def, rounds, pos, rounds[2]);
+      continue;
+    }
+    layoutRound(def, rounds, rnd, pos, x);
+  }
+  return pos;
+}
+
+/* ============================================================
+   5. SVG RENDERER
+   ============================================================ */
+const esc = s => String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const F_TEAM = 0.62, F_STUB = 0.5;
+
+function fit(text, maxUnits, size){
+  const per = size * 0.55;
+  const max = Math.max(4, Math.floor(maxUnits / per));
+  return text.length > max ? text.slice(0, max - 1) + "\u2026" : text;
+}
+
+function renderSVG(t, rounds, pos, byId, opts){
+  const ids = Object.keys(pos).map(Number);
+  if (!ids.length) return "<p>No games to draw.</p>";
+
+  const rlist  = Object.keys(rounds).map(Number).sort((a,b)=>a-b);
+  const maxR   = rlist[rlist.length - 1];
+  const finals = rounds[maxR] || [];
+  const firstFinal = Math.min(...finals);
+
+  // Hide the "if necessary" game once the winners-bracket team takes game 1.
+  const hidden = new Set();
+  if (opts.isWinners && finals.length > 1){
+    const g1 = t.games[firstFinal];
+    if (g1 && g1.sa != null && g1.sa > g1.sb)
+      finals.forEach(g => { if (g !== firstFinal) hidden.add(g); });
+  }
+
+  const vis = ids.filter(g => !hidden.has(g));
+  const xs = vis.map(g => pos[g][0]), ys = vis.map(g => pos[g][1]);
+  const minX = Math.min(...xs), maxX = Math.max(...xs) + BW;
+  const minY = Math.min(...ys) - BH, maxY = Math.max(...ys) + BH;
+  const PAD = 1.4;
+  const W = (maxX - minX) + PAD * 2, H = (maxY - minY) + PAD * 2;
+  const X = x => (x - minX + PAD).toFixed(2);
+  const Y = y => (maxY - y + PAD).toFixed(2);
+
+  const out = [];
+  const line = (x1,y1,x2,y2,w,col) =>
+    out.push(`<line x1="${X(x1)}" y1="${Y(y1)}" x2="${X(x2)}" y2="${Y(y2)}" stroke="${col}" stroke-width="${w}" stroke-linecap="square"/>`);
+
+  for (const gid of vis){
+    const [x,y] = pos[gid];
+    const g = t.games[gid];
+    const src = t.def[gid] || ["?","?"];
+    const yTop = y + BH/2, yBot = y - BH/2;
+
+    line(x + BW, yTop, x + BW, yBot, 0.14, "var(--ink)");
+
+    const slots = [0,1].map(i => {
+      const ref = src[i];
+      let px = null, py = null;
+      if (isRef(ref)){
+        const pid = +ref.slice(1);
+        if (pid in pos && !hidden.has(pid)){ px = pos[pid][0]; py = pos[pid][1]; }
+      }
+      return {ref, px, py, idx:i};
+    });
+    if (slots[0].py != null && slots[1].py != null && slots[0].py < slots[1].py) slots.reverse();
+
+    [yTop, yBot].forEach((ty, i) => {
+      const s = slots[i];
+      line(x, ty, x + BW, ty, 0.09, "var(--ink)");
+
+      if (s.py != null){
+        const exit = s.px + BW, mid = exit + (x - exit) / 2;
+        out.push(`<polyline fill="none" stroke="var(--line)" stroke-width="0.07" points="${X(exit)},${Y(s.py)} ${X(mid)},${Y(s.py)} ${X(mid)},${Y(ty)} ${X(x)},${Y(ty)}"/>`);
+      }
+
+      const team  = s.idx === 0 ? g.a  : g.b;
+      const score = s.idx === 0 ? g.sa : g.sb;
+      const raw   = team ? String(team)
+                  : (typeof s.ref === "number" ? "Seed " + s.ref : String(s.ref));
+      const gone  = team ? t.eliminated(team) : false;
+      const col   = team ? (gone ? "var(--out)" : "var(--ink)") : "var(--ink-soft)";
+      const above = i === 0;
+      const ty2   = above ? (+Y(ty) - 0.18).toFixed(2) : (+Y(ty) + 0.18).toFixed(2);
+      const base  = above ? "" : ' dominant-baseline="hanging"';
+      const deco  = gone ? ' text-decoration="line-through"' : "";
+
+      out.push(
+        `<text x="${X(x + 0.22)}" y="${ty2}"${base} font-size="${F_TEAM}" font-weight="${team ? 700 : 500}" fill="${col}"${deco}>` +
+        `<title>${esc(raw)}</title>${esc(fit(raw, BW - 2.0, F_TEAM))}</text>`
+      );
+      if (score != null)
+        out.push(`<text x="${X(x + BW - 0.22)}" y="${ty2}"${base} text-anchor="end" font-size="${F_TEAM}" font-weight="700" class="stub" fill="var(--ink)">${esc(score)}</text>`);
+    });
+
+    const row  = byId.get(gid);
+    const when = (row && row.schedule) ? row.schedule : "TBD";
+    const nec  = (opts.isWinners && finals.length > 1 && gid !== firstFinal && finals.includes(gid)) ? " \u00b7 IF NEC" : "";
+    out.push(`<text x="${X(x + BW - 0.22)}" y="${Y(y)}" text-anchor="end" dominant-baseline="middle" font-size="${F_STUB}" class="stub" fill="var(--ink-soft)">G${gid} \u00b7 ${esc(when)}${nec}</text>`);
+  }
+
+  const px = getComputedStyle(document.documentElement).getPropertyValue("--unit").trim() || 20;
+  return `<svg viewBox="0 0 ${W.toFixed(2)} ${H.toFixed(2)}" width="${(W*px).toFixed(0)}" height="${(H*px).toFixed(0)}" xmlns="http://www.w3.org/2000/svg">${out.join("")}</svg>`;
+}
+
+/* ============================================================
+   6. GOOGLE SHEETS
+   ============================================================ */
+const norm = s => String(s || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+const num  = v => (v === null || v === undefined || v === "") ? null : (isNaN(+v) ? null : +v);
+
+async function loadTab(tab){
+  const url = `https://docs.google.com/spreadsheets/d/${CONFIG.SHEET_ID}/gviz/tq`
+            + `?tqx=out:json&headers=1&sheet=${encodeURIComponent(tab)}&_=${Date.now()}`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${tab}: HTTP ${res.status}`);
+  const txt = await res.text();
+  const start = txt.indexOf("{"), end = txt.lastIndexOf("}");
+  if (start < 0) throw new Error(`${tab}: unreadable response — is the sheet published?`);
+  const json = JSON.parse(txt.slice(start, end + 1));
+  if (!json.table) throw new Error(`${tab}: tab not found`);
+  const cols = json.table.cols.map(c => norm(c.label));
+  return (json.table.rows || []).map(r => {
+    const o = {};
+    (r.c || []).forEach((cell, i) => { o[cols[i] || ("c" + i)] = cell ? cell.v : null; });
+    return o;
+  });
+}
+
+function readPool(rows){
+  return rows
+    .map(r => ({
+      name: r.teamname || r.team || r.name,
+      wins: num(r.wins) || 0,
+      rd:   num(r.rundifference != null ? r.rundifference : r.rundiff) || 0,
+      rs:   num(r.runsscored) || 0
+    }))
+    .filter(r => r.name);
+}
+
+function readGames(rows){
+  return rows.map(r => ({
+    gid: num(r.gameid != null ? r.gameid : r.game),
+    sa:  num(r.scorea),
+    sb:  num(r.scoreb),
+    schedule: r.schedule || [r.datetime || r.date || r.time, r.field].filter(Boolean).join(" \u00b7 ") || null
+  })).filter(r => r.gid != null);
+}
+
+/* ============================================================
+   7. APP
+   ============================================================ */
+const state = {div: DIVISIONS[0], view:"W", data:{}, unit:20, error:null, stamp:null};
+const $ = id => document.getElementById(id);
+const configured = () => CONFIG.SHEET_ID && !CONFIG.SHEET_ID.startsWith("PASTE_");
+
+document.title = CONFIG.TITLE;
+$("title").textContent = CONFIG.TITLE;
+$("setupNote").hidden = configured();
+
+const params = new URLSearchParams(location.search);
+const forced = DIVISIONS.find(d => d.key === params.get("div"));
+if (forced) state.div = forced;
+
+$("divTabs").innerHTML = DIVISIONS
+  .map(d => `<button class="tab" role="tab" data-key="${d.key}" aria-selected="${d === state.div}">${d.label}</button>`)
+  .join("");
+$("divTabs").addEventListener("click", e => {
+  const b = e.target.closest("[data-key]");
+  if (!b) return;
+  state.div = DIVISIONS.find(d => d.key === b.dataset.key);
+  syncTabs(); draw(); load();
+});
+
+$("tabW").onclick = () => { state.view = "W"; syncTabs(); draw(); };
+$("tabL").onclick = () => { state.view = "L"; syncTabs(); draw(); };
+$("refresh").onclick = () => load();
+$("zIn").onclick  = () => { state.unit = Math.min(40, state.unit + 3); draw(); };
+$("zOut").onclick = () => { state.unit = Math.max(7,  state.unit - 3); draw(); };
+$("zFit").onclick = () => { fitWidth(); };
+
+function syncTabs(){
+  [...$("divTabs").children].forEach(b => b.setAttribute("aria-selected", b.dataset.key === state.div.key));
+  $("tabW").setAttribute("aria-selected", state.view === "W");
+  $("tabL").setAttribute("aria-selected", state.view === "L");
+}
+
+function fitWidth(){
+  const svg = $("stage").querySelector("svg");
+  if (!svg) return;
+  const vb = svg.getAttribute("viewBox").split(" ");
+  const avail = $("stage").clientWidth - 32;
+  state.unit = Math.max(5, avail / parseFloat(vb[2]));
+  draw();
+}
+
+function draw(){
+  document.documentElement.style.setProperty("--unit", state.unit);
+  const div = state.div;
+  const d = state.data[div.key] || {pool:[], games:[]};
+  const {t, seeded, byId} = buildBracket(div, d.pool, d.games);
+  const rounds = state.view === "W" ? div.wr : div.lr;
+  const pos = state.view === "W" ? positionWinners(div.bracket, rounds)
+                                 : positionLosers(div.bracket, rounds);
+  const stage = $("stage");
+  stage.innerHTML = renderSVG(t, rounds, pos, byId, {isWinners: state.view === "W"});
+  stage.classList.remove("fade"); void stage.offsetWidth; stage.classList.add("fade");
+
+  $("seeds").innerHTML =
+    `<h2>Seeds &mdash; ${esc(div.label)}</h2>` +
+    (seeded.length
+      ? `<table><tbody>${seeded.map(s =>
+          `<tr class="${t.eliminated(s.name) ? "out" : ""}"><td>${s.seed}</td><td>${esc(s.name)}</td>` +
+          `<td class="num">${s.wins}</td><td class="num">${s.rd > 0 ? "+" + s.rd : s.rd}</td></tr>`).join("")}</tbody></table>`
+      : `<p style="font-size:.82rem;color:var(--ink-soft)">No pool results yet. Add teams to the <code>${esc(div.poolTab)}</code> tab.</p>`);
+}
+
+function setStamp(){
+  const el = $("stamp");
+  if (state.error){
+    el.className = "stamp err";
+    el.innerHTML = `<span>${esc(state.error)}</span>`;
+  } else {
+    el.className = "stamp";
+    el.innerHTML = state.stamp
+      ? `<span>Updated <b>${state.stamp}</b></span>`
+      : `<span>Loading&hellip;</span>`;
+  }
+}
+
+async function load(){
+  if (!configured()){ state.error = null; state.stamp = null; setStamp(); draw(); return; }
+  const div = state.div;
+  try {
+    const [pool, games] = await Promise.all([loadTab(div.poolTab), loadTab(div.gamesTab)]);
+    state.data[div.key] = {pool: readPool(pool), games: readGames(games)};
+    state.error = null;
+    state.stamp = new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
+  } catch (err){
+    state.error = err.message + " \u2014 check the tab name and that the sheet is published.";
+  }
+  setStamp();
+  draw();
+}
+
+syncTabs();
+draw();
+load();
+setInterval(load, CONFIG.POLL_SECONDS * 1000);
+window.addEventListener("resize", () => { /* keep zoom; user controls fit */ });
+</script>
+</body>
+</html>
