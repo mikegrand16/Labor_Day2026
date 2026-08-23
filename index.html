@@ -140,6 +140,19 @@ const CONFIG = {
 /* ============================================================
    2. BRACKET DEFINITIONS  (ported straight from the Python)
    ============================================================ */
+const BRACKET_9 = {
+  1:[8,9],
+  2:[4,5], 3:[2,7], 4:[3,6], 5:[1,"W1"],
+  6:["L4","L1"],
+  7:["L2","L5"], 8:["L3","W6"],
+  9:["W3","W4"], 10:["W5","W2"],
+  11:["L9","W7"], 12:["L10","W8"],
+  13:["W12","W11"],
+  14:["W10","W9"],
+  15:["L14","W13"],
+  16:["W14","W15"], 17:["W14","W15"]
+};
+
 const BRACKET_10 = {
   1:[8,9], 2:[7,10],
   3:[4,5], 4:[3,6], 5:[1,"W1"], 6:[2,"W2"],
@@ -202,6 +215,9 @@ const BRACKET_26 = {
   50:["W48","W49"], 51:["W48","W49"]
 };
 
+const WINNERS_ROUNDS_9  = {1:[1], 2:[2,3,4,5], 3:[9,10], 4:[14], 5:[16,17]};
+const LOSERS_ROUNDS_9   = {1:[6], 2:[7,8], 3:[11,12], 4:[13], 5:[15]};
+
 const WINNERS_ROUNDS_10 = {1:[1,2], 2:[3,4,5,6], 3:[11,12], 4:[16], 5:[18,19]};
 const LOSERS_ROUNDS_10  = {1:[7,8], 2:[9,10], 3:[13,14], 4:[15], 5:[17]};
 
@@ -221,8 +237,10 @@ const LOSERS_ROUNDS_26 = {
 };
 
 const DIVISIONS = [
-  {key:"womens",     label:"Women's",     bracket:BRACKET_10, wr:WINNERS_ROUNDS_10, lr:LOSERS_ROUNDS_10},
-  {key:"masters",    label:"Masters",     bracket:BRACKET_14, wr:WINNERS_ROUNDS_14, lr:LOSERS_ROUNDS_14},
+  // To change a division's format, swap the three names on its line to another
+  // block above. Team count must match: 9/10/13/14/15/25/26.
+  {key:"womens",     label:"Women's",     bracket:BRACKET_9,  wr:WINNERS_ROUNDS_9,  lr:LOSERS_ROUNDS_9},
+  {key:"masters",    label:"Masters",     bracket:BRACKET_15, wr:WINNERS_ROUNDS_15, lr:LOSERS_ROUNDS_15},
   {key:"mens_upper", label:"Men's Upper", bracket:BRACKET_15, wr:WINNERS_ROUNDS_15, lr:LOSERS_ROUNDS_15},
   {key:"mens_lower", label:"Men's Lower", bracket:BRACKET_26, wr:WINNERS_ROUNDS_26, lr:LOSERS_ROUNDS_26}
 ];
