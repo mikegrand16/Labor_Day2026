@@ -66,7 +66,9 @@
   }
   .zoom{display:flex;gap:.25rem;margin-left:auto}
   .zoom button{font-family:var(--mono);padding:.35rem .55rem;line-height:1}
-  .scroll{overflow:auto;padding:1.25rem 1rem 2.5rem;-webkit-overflow-scrolling:touch}
+  /* Horizontal scroll stays inside the frame; vertical is the host page's job,
+     so this box grows to its content instead of scrolling. */
+  .scroll{overflow-x:auto;overflow-y:hidden;padding:1.25rem 1rem 1.5rem;-webkit-overflow-scrolling:touch}
   svg{display:block}
   svg text{font-family:var(--sans)}
   svg .stub{font-family:var(--mono)}
@@ -93,7 +95,20 @@
     color:var(--ink-soft);padding:.3rem .4rem;border-bottom:1.5px solid var(--ink);
   }
   .seeds th.num{text-align:right}
-  .seeds{max-width:38rem}
+  .seeds{max-width:44rem}
+  .pg{padding:0 1rem 2.5rem;max-width:44rem}
+  .pg table{border-collapse:collapse;width:100%;font-size:.82rem}
+  .pg th{
+    text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--ink-soft);padding:.3rem .4rem;border-bottom:1.5px solid var(--ink);
+  }
+  .pg td{border-bottom:1px solid var(--rule);padding:.4rem .4rem;vertical-align:top}
+  .pg td.n{font-family:var(--mono);color:var(--ink-soft);width:2rem;text-align:right}
+  .pg td.when{font-family:var(--mono);font-size:.72rem;color:var(--ink-soft);white-space:nowrap}
+  .pg .sc{font-family:var(--mono);font-weight:700}
+  .pg .w{font-weight:800}
+  .pg .l{color:var(--ink-soft)}
+  .pg .pending{color:var(--ink-soft);font-style:italic}
   .seeds tr.out td:nth-child(2){text-decoration:line-through;color:var(--out)}
   .fade{animation:fade .28s ease-out}
   @keyframes fade{from{opacity:.35}to{opacity:1}}
@@ -126,6 +141,7 @@
 
 <div class="scroll" id="stage"></div>
 <div class="seeds" id="seeds"></div>
+<div class="pg" id="poolGames"></div>
 
 <script>
 /* ============================================================
@@ -244,7 +260,11 @@ const DIVISIONS = [
   {key:"mens_upper", label:"Men's Upper", bracket:BRACKET_15, wr:WINNERS_ROUNDS_15, lr:LOSERS_ROUNDS_15},
   {key:"mens_lower", label:"Men's Lower", bracket:BRACKET_26, wr:WINNERS_ROUNDS_26, lr:LOSERS_ROUNDS_26}
 ];
-DIVISIONS.forEach(d => { d.poolTab = d.key + "_pool"; d.gamesTab = d.key + "_games"; });
+DIVISIONS.forEach(d => {
+  d.poolTab      = d.key + "_pool";
+  d.gamesTab     = d.key + "_games";
+  d.poolGamesTab = d.key + "_pool_games";
+});
 
 /* ============================================================
    3. BRACKET ENGINE
@@ -551,6 +571,17 @@ function readPool(rows){
     .filter(r => r.name);
 }
 
+function readPoolGames(rows){
+  return rows.map(r => ({
+    n:  num(r.poolgame != null ? r.poolgame : (r.game != null ? r.game : r.gameid)),
+    a:  r.teama || r.team1 || "",
+    sa: num(r.scorea),
+    b:  r.teamb || r.team2 || "",
+    sb: num(r.scoreb),
+    schedule: r.schedule || [r.datetime || r.date || r.time, r.field].filter(Boolean).join(" \u00b7 ") || ""
+  })).filter(r => r.a || r.b);
+}
+
 function readGames(rows){
   return rows.map(r => ({
     gid: num(r.gameid != null ? r.gameid : r.game),
@@ -563,7 +594,7 @@ function readGames(rows){
 /* ============================================================
    7. APP
    ============================================================ */
-const state = {div: DIVISIONS[0], view:"W", data:{}, unit:20, error:null, stamp:null};
+const state = {div: DIVISIONS[0], view:"W", data:{}, unit:20, error:null, stamp:null, fitted:false};
 const $ = id => document.getElementById(id);
 const configured = () => CONFIG.SHEET_ID && !CONFIG.SHEET_ID.startsWith("PASTE_");
 
@@ -598,19 +629,33 @@ function syncTabs(){
   $("tabL").setAttribute("aria-selected", state.view === "L");
 }
 
-function fitWidth(){
+// silent = just recompute the zoom, don't redraw (the caller is mid-draw).
+function fitWidth(silent){
   const svg = $("stage").querySelector("svg");
-  if (!svg) return;
-  const vb = svg.getAttribute("viewBox").split(" ");
+  if (!svg) return false;
+  const vbW = parseFloat(svg.getAttribute("viewBox").split(" ")[2]);
   const avail = $("stage").clientWidth - 32;
-  state.unit = Math.max(5, avail / parseFloat(vb[2]));
-  draw();
+  if (!(avail > 0) || !(vbW > 0)) return false;
+  state.unit = Math.max(4, avail / vbW);
+  if (!silent) draw();
+  return true;
+}
+
+// Tell the host page how tall we are, so its own scrollbar covers everything
+// and this frame never gets one of its own.
+var lastPostedHeight = 0;
+function postHeight(){
+  var h = Math.ceil(document.documentElement.scrollHeight);
+  if (h && h !== lastPostedHeight){
+    lastPostedHeight = h;
+    try { parent.postMessage({bracketHeight: h}, "*"); } catch (e) {}
+  }
 }
 
 function draw(){
   document.documentElement.style.setProperty("--unit", state.unit);
   const div = state.div;
-  const d = state.data[div.key] || {pool:[], games:[]};
+  const d = state.data[div.key] || {pool:[], games:[], poolGames:[]};
   const {t, seeded, byId} = buildBracket(div, d.pool, d.games);
   const rounds = state.view === "W" ? div.wr : div.lr;
   const pos = state.view === "W" ? positionWinners(div.bracket, rounds)
@@ -618,6 +663,14 @@ function draw(){
   const stage = $("stage");
   stage.innerHTML = renderSVG(t, rounds, pos, byId, {isWinners: state.view === "W"});
   stage.classList.remove("fade"); void stage.offsetWidth; stage.classList.add("fade");
+
+  // First paint only: size the bracket to the viewer's screen. After this the
+  // +/-/Fit buttons are entirely theirs.
+  if (!state.fitted && fitWidth(true)){
+    state.fitted = true;
+    draw();
+    return;
+  }
 
   $("seeds").innerHTML =
     `<h2>Pool play &amp; seeding &mdash; ${esc(div.label)}</h2>` +
@@ -632,6 +685,33 @@ function draw(){
           `<td class="num">${s.rd > 0 ? "+" + s.rd : s.rd}</td>` +
           `<td class="num">${s.rs}</td><td class="num">${s.ra}</td></tr>`).join("")}</tbody></table>`
       : `<p style="font-size:.82rem;color:var(--ink-soft)">No pool results yet. Add teams to the <code>${esc(div.poolTab)}</code> tab.</p>`);
+
+  $("poolGames").innerHTML = renderPoolGames(div, d.poolGames);
+  postHeight();
+}
+
+function renderPoolGames(div, rows){
+  if (!rows || !rows.length){
+    return `<h2>Pool play games &mdash; ${esc(div.label)}</h2>` +
+      `<p style="font-size:.82rem;color:var(--ink-soft)">No pool games yet. ` +
+      `Add them to the <code>${esc(div.poolGamesTab)}</code> tab.</p>`;
+  }
+  const body = rows.map((g, i) => {
+    const done = g.sa != null && g.sb != null && g.sa !== g.sb;
+    const aCls = done ? (g.sa > g.sb ? "w" : "l") : "";
+    const bCls = done ? (g.sb > g.sa ? "w" : "l") : "";
+    const matchup = done
+      ? `<span class="${aCls}">${esc(g.a)}</span> <span class="sc">${esc(g.sa)}</span>` +
+        ` &ndash; ` +
+        `<span class="sc">${esc(g.sb)}</span> <span class="${bCls}">${esc(g.b)}</span>`
+      : `${esc(g.a)} <span class="pending">vs</span> ${esc(g.b)}`;
+    return `<tr><td class="n">${g.n != null ? g.n : i + 1}</td>` +
+           `<td>${matchup}</td>` +
+           `<td class="when">${esc(g.schedule || "TBD")}</td></tr>`;
+  }).join("");
+  return `<h2>Pool play games &mdash; ${esc(div.label)}</h2>` +
+    `<table><thead><tr><th>#</th><th>Matchup &amp; result</th>` +
+    `<th>Date &amp; field</th></tr></thead><tbody>${body}</tbody></table>`;
 }
 
 function setStamp(){
@@ -651,8 +731,17 @@ async function load(){
   if (!configured()){ state.error = null; state.stamp = null; setStamp(); draw(); return; }
   const div = state.div;
   try {
-    const [pool, games] = await Promise.all([loadTab(div.poolTab), loadTab(div.gamesTab)]);
-    state.data[div.key] = {pool: readPool(pool), games: readGames(games)};
+    // A missing pool_games tab shouldn't take the bracket down with it.
+    const [pool, games, poolGames] = await Promise.all([
+      loadTab(div.poolTab),
+      loadTab(div.gamesTab),
+      loadTab(div.poolGamesTab).catch(() => [])
+    ]);
+    state.data[div.key] = {
+      pool: readPool(pool),
+      games: readGames(games),
+      poolGames: readPoolGames(poolGames)
+    };
     state.error = null;
     state.stamp = new Date().toLocaleTimeString([], {hour:"numeric", minute:"2-digit"});
   } catch (err){
@@ -666,7 +755,9 @@ syncTabs();
 draw();
 load();
 setInterval(load, CONFIG.POLL_SECONDS * 1000);
-window.addEventListener("resize", () => { /* keep zoom; user controls fit */ });
+window.addEventListener("resize", postHeight);
+window.addEventListener("load", postHeight);
+setInterval(postHeight, 1000);   // cheap safety net for late layout shifts
 </script>
 </body>
 </html>
