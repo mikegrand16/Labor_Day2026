@@ -249,9 +249,15 @@ function tieKey(name){
   return h >>> 0;
 }
 
-// Wins, then run difference, then runs scored, then fewest runs against,
-// then the stable random tiebreak.
+// If every row carries a Seed number, that IS the seeding - it was set when the
+// division was seeded, and any coin-flip positions were typed in by hand. Only
+// fall back to computing the order when the column is blank.
 function seedTeams(rows){
+  if (rows.length && rows.every(r => r.seed != null)){
+    return rows.slice()
+      .sort((a,b) => a.seed - b.seed)
+      .map((r,i) => Object.assign({}, r, {seed:i+1}));
+  }
   return rows.slice()
     .sort((a,b) =>
         (b.wins - a.wins)
@@ -530,7 +536,8 @@ function readPool(rows){
         losses: num(r.losses) || 0,
         rs: rs,
         ra: ra,
-        rd: rdCell != null ? rdCell : rs - ra   // computed if the column is blank
+        rd: rdCell != null ? rdCell : rs - ra,  // computed if the column is blank
+        seed: num(r.seed)                       // set by the entry app; blank = compute
       };
     })
     .filter(r => r.name);
@@ -582,7 +589,7 @@ function demoData(div){
   for (let i = 1; i <= n; i++) names.push("TEAM " + i);
 
   // Two pool games each, same ring pairing the simulator uses.
-  const pool = names.map(t => ({name:t, wins:0, losses:0, rs:0, ra:0, rd:0}));
+  const pool = names.map(t => ({name:t, wins:0, losses:0, rs:0, ra:0, rd:0, seed:null}));
   const idx = {}; pool.forEach((p,i) => { idx[p.name] = i; });
   const poolGames = [];
   for (let k = 0; k < n; k++){
