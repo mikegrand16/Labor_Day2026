@@ -658,8 +658,12 @@ function fitWidth(silent){
 // and this frame never gets one of its own.
 var lastPostedHeight = 0;
 function postHeight(){
-  var h = Math.ceil(document.documentElement.scrollHeight);
-  if (h && h !== lastPostedHeight){
+  // Measure the BODY, not documentElement: inside an iframe documentElement
+  // never reports less than the frame's own height, so measuring it and then
+  // resizing the frame to that number grows without limit.
+  var b = document.body;
+  var h = Math.ceil(Math.max(b.getBoundingClientRect().height, b.offsetHeight));
+  if (h > 0 && Math.abs(h - lastPostedHeight) > 4){
     lastPostedHeight = h;
     try { parent.postMessage({bracketHeight: h}, "*"); } catch (e) {}
   }
