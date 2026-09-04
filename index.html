@@ -109,6 +109,11 @@
   .pg .w{font-weight:800}
   .pg .l{color:var(--ink-soft)}
   .pg .pending{color:var(--ink-soft);font-style:italic}
+  .pg .tied{
+    font-family:var(--mono);font-size:.66rem;font-weight:700;letter-spacing:.06em;
+    color:var(--sun);border:1px solid var(--sun);border-radius:2px;padding:0 .25rem;
+    margin-left:.3rem;vertical-align:.05em;
+  }
   .seeds tr.out td:nth-child(2){text-decoration:line-through;color:var(--out)}
   .fade{animation:fade .28s ease-out}
   @keyframes fade{from{opacity:.35}to{opacity:1}}
@@ -261,6 +266,7 @@ function seedTeams(rows){
   return rows.slice()
     .sort((a,b) =>
         (b.wins - a.wins)
+     || (b.ties - a.ties)
      || (b.rd   - a.rd)
      || (b.rs   - a.rs)
      || (a.ra   - b.ra)
@@ -534,6 +540,7 @@ function readPool(rows){
         name:   r.teamname || r.team || r.name,
         wins:   num(r.wins) || 0,
         losses: num(r.losses) || 0,
+        ties:   num(r.ties) || 0,
         rs: rs,
         ra: ra,
         rd: rdCell != null ? rdCell : rs - ra,  // computed if the column is blank
@@ -589,7 +596,7 @@ function demoData(div){
   for (let i = 1; i <= n; i++) names.push("TEAM " + i);
 
   // Two pool games each, same ring pairing the simulator uses.
-  const pool = names.map(t => ({name:t, wins:0, losses:0, rs:0, ra:0, rd:0, seed:null}));
+  const pool = names.map(t => ({name:t, wins:0, losses:0, ties:0, rs:0, ra:0, rd:0, seed:null}));
   const idx = {}; pool.forEach((p,i) => { idx[p.name] = i; });
   const poolGames = [];
   for (let k = 0; k < n; k++){
@@ -694,11 +701,12 @@ function draw(){
     (seeded.length
       ? `<table><thead><tr>` +
         `<th>#</th><th class="tname">Team</th>` +
-        `<th class="num">W</th><th class="num">L</th>` +
+        `<th class="num">W</th><th class="num">L</th><th class="num">T</th>` +
         `<th class="num">RD</th><th class="num">RS</th><th class="num">RA</th>` +
         `</tr></thead><tbody>${seeded.map(s =>
           `<tr class="${t.eliminated(s.name) ? "out" : ""}"><td>${s.seed}</td><td>${esc(s.name)}</td>` +
           `<td class="num">${s.wins}</td><td class="num">${s.losses}</td>` +
+          `<td class="num">${s.ties}</td>` +
           `<td class="num">${s.rd > 0 ? "+" + s.rd : s.rd}</td>` +
           `<td class="num">${s.rs}</td><td class="num">${s.ra}</td></tr>`).join("")}</tbody></table>`
       : `<p style="font-size:.82rem;color:var(--ink-soft)">No pool results yet. Add teams to the <code>${esc(div.poolTab)}</code> tab.</p>`);
@@ -714,13 +722,16 @@ function renderPoolGames(div, rows){
       `Add them to the <code>${esc(div.poolGamesTab)}</code> tab.</p>`;
   }
   const body = rows.map((g, i) => {
-    const done = g.sa != null && g.sb != null && g.sa !== g.sb;
-    const aCls = done ? (g.sa > g.sb ? "w" : "l") : "";
-    const bCls = done ? (g.sb > g.sa ? "w" : "l") : "";
-    const matchup = done
+    const played = g.sa != null && g.sb != null;
+    const tied   = played && g.sa === g.sb;
+    // A tied pool game is played and counts - neither side is bolded.
+    const aCls = played && !tied ? (g.sa > g.sb ? "w" : "l") : "";
+    const bCls = played && !tied ? (g.sb > g.sa ? "w" : "l") : "";
+    const matchup = played
       ? `<span class="${aCls}">${esc(g.a)}</span> <span class="sc">${esc(g.sa)}</span>` +
         ` &ndash; ` +
-        `<span class="sc">${esc(g.sb)}</span> <span class="${bCls}">${esc(g.b)}</span>`
+        `<span class="sc">${esc(g.sb)}</span> <span class="${bCls}">${esc(g.b)}</span>` +
+        (tied ? ` <span class="tied">TIE</span>` : ``)
       : `${esc(g.a)} <span class="pending">vs</span> ${esc(g.b)}`;
     return `<tr><td class="n">${g.n != null ? g.n : i + 1}</td>` +
            `<td>${matchup}</td>` +
